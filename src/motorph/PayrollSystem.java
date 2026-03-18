@@ -4,6 +4,7 @@ import java.io.*;
 import java.util.*;
 
 public class PayrollSystem {
+    // Capacity for 1,500+ employees using a fast-lookup Map
     static Map<String, String[]> employeeMap = new HashMap<>();
     static Scanner sc = new Scanner(System.in);
     static String loggedInID = "";
@@ -33,13 +34,14 @@ public class PayrollSystem {
         System.out.println("==============================================\n");
     }
 
+    // High-speed Data Loading from EmployeeDetails.csv
     public static void loadEmployeeData() {
         try (BufferedReader br = new BufferedReader(new FileReader("EmployeeDetails.csv"))) {
             String line;
             br.readLine(); // Skip CSV Header
             while ((line = br.readLine()) != null) {
                 String[] data = line.split(",");
-                // Clean whitespace from ID
+                // Use EmployeeID (Index 0) as the Key, trim to remove spaces
                 employeeMap.put(data[0].trim(), data);
             }
         } catch (IOException e) {
@@ -50,6 +52,7 @@ public class PayrollSystem {
     public static boolean authenticate(String id, String pin) {
         if (employeeMap.containsKey(id)) {
             String[] emp = employeeMap.get(id);
+            // PIN is in column index 19
             return emp[19].trim().equals(pin);
         }
         return false;
@@ -58,10 +61,10 @@ public class PayrollSystem {
     public static void employeeDashboard() {
         String[] emp = employeeMap.get(loggedInID);
         while (true) {
-            System.out.println("\nWelcome, " + emp[2] + " " + emp[1] + " [" + emp[11] + "]");
+            System.out.println("\nWelcome, " + emp[2] + " " + emp[1]);
             System.out.println("----------------------------------------------");
             System.out.println("[1] View My Profile");
-            System.out.println("[2] Request Payslip (Calculate Payroll)");
+            System.out.println("[2] Request Payslip (Calculate Attendance)");
             System.out.println("[3] Logout");
             System.out.print("Selection: ");
             String choice = sc.nextLine();
@@ -77,7 +80,6 @@ public class PayrollSystem {
         System.out.println("ID: " + emp[0]);
         System.out.println("Name: " + emp[2] + " " + emp[1]);
         System.out.println("Birthday: " + emp[3]);
-        System.out.println("Address: " + emp[4]);
         System.out.println("SSS: " + emp[6] + " | PhilHealth: " + emp[7]);
         System.out.println("TIN: " + emp[8] + " | Pag-IBIG: " + emp[9]);
         System.out.println("----------------------");
@@ -86,74 +88,81 @@ public class PayrollSystem {
     public static void requestPayslip(String[] emp) {
         System.out.print("\nEnter Month (e.g., 03 for March): ");
         String month = sc.nextLine();
-        // Period selection is kept for UI, but the logic now scans the file
-        System.out.println("Select Cutoff Period:");
-        System.out.println("[1] 1st - 15th");
-        System.out.println("[2] 16th - End of Month");
-        String period = sc.nextLine();
-
-        calculateAndDisplay(emp, month, period);
-    }
-
-    public static void calculateAndDisplay(String[] emp, String month, String period) {
+        
         double hourlyRate = Double.parseDouble(emp[18].trim());
         double totalHours = 0;
+        double totalLateMinutes = 0;
 
-        // NEW: Real-time calculation from AttendanceRecords.csv
+        System.out.println("[...] Scanning AttendanceRecords.csv...");
+
         try (BufferedReader br = new BufferedReader(new FileReader("AttendanceRecords.csv"))) {
             String line;
             br.readLine(); // Skip Header
             while ((line = br.readLine()) != null) {
                 String[] att = line.split(",");
                 String empId = att[0].trim();
-                String date = att[1].trim(); // Assuming format MM/DD/YYYY
+                String date = att[1].trim(); 
                 
+                // Filter by LoggedIn User and Month
                 if (empId.equals(loggedInID) && date.startsWith(month)) {
-                    totalHours += calculateHoursWorked(att[2].trim(), att[3].trim());
+                    double[] dailyResult = calculateDailyStats(att[2].trim(), att[3].trim());
+                    totalHours += dailyResult[0];
+                    totalLateMinutes += dailyResult[1];
                 }
             }
         } catch (IOException e) {
-            System.out.println("[!] Error reading Attendance file. Using demo hours.");
-            totalHours = 80.0;
+            System.out.println("[!] Error: Could not read AttendanceRecords.csv");
+            return;
         }
 
-        double gross = hourlyRate * totalHours;
-        double sss = gross * 0.045;
-        double philHealth = gross * 0.025;
-        double pagIbig = 100.00; // Simplified for demo
-        double tax = (gross > 15000) ? (gross * 0.10) : 0;
-        double netPay = gross - (sss + philHealth + pagIbig + tax);
-
-        System.out.println("\n===========================================");
-        System.out.println("        PAYSLIP: MONTH " + month + " (Period " + period + ")");
-        System.out.println("===========================================");
-        System.out.println("TOTAL HOURS:        " + String.format("%.2f", totalHours));
-        System.out.println("HOURLY RATE:        P " + String.format("%.2f", hourlyRate));
-        System.out.println("GROSS SALARY:       P " + String.format("%.2f", gross));
-        System.out.println("-------------------------------------------");
-        System.out.println("DEDUCTIONS:");
-        System.out.println(" - SSS:             P " + String.format("%.2f", sss));
-        System.out.println(" - PhilHealth:      P " + String.format("%.2f", philHealth));
-        System.out.println(" - Pag-IBIG:        P " + String.format("%.2f", pagIbig));
-        System.out.println(" - Tax:             P " + String.format("%.2f", tax));
-        System.out.println("-------------------------------------------");
-        System.out.println("NET PAY:            P " + String.format("%.2f", netPay));
-        System.out.println("===========================================");
+        displayPayslip(totalHours, totalLateMinutes, hourlyRate);
     }
 
-    // Helper to calculate hours between two 24-hour strings (e.g., "08:00", "17:00")
-    private static double calculateHoursWorked(String timeIn, String timeOut) {
+    // Helper to calculate hours worked and tardiness
+    private static double[] calculateDailyStats(String timeIn, String timeOut) {
         try {
             String[] inParts = timeIn.split(":");
             String[] outParts = timeOut.split(":");
             
-            double inTime = Double.parseDouble(inParts[0]) + Double.parseDouble(inParts[1])/60;
-            double outTime = Double.parseDouble(outParts[0]) + Double.parseDouble(outParts[1])/60;
-            
-            double total = outTime - inTime;
-            return (total > 5) ? total - 1 : total; // Subtract 1hr lunch break
+            double inH = Double.parseDouble(inParts[0]);
+            double inM = Double.parseDouble(inParts[1]);
+            double outH = Double.parseDouble(outParts[0]);
+            double outM = Double.parseDouble(outParts[1]);
+
+            // Late calculation (Standard start is 08:00)
+            double late = 0;
+            if (inH > 8 || (inH == 8 && inM > 0)) {
+                late = ((inH - 8) * 60) + inM;
+            }
+
+            // Hour calculation
+            double start = inH + (inM / 60);
+            double end = outH + (outM / 60);
+            double total = end - start;
+            double netHours = (total > 5) ? total - 1 : total; // Subtract lunch
+
+            return new double[]{netHours, late};
         } catch (Exception e) {
-            return 0;
+            return new double[]{0, 0};
         }
+    }
+
+    public static void displayPayslip(double hours, double lates, double rate) {
+        double lateDeduction = (rate / 60) * lates;
+        double gross = (rate * hours) - lateDeduction;
+        double sss = gross * 0.045;
+        double tax = (gross > 15000) ? (gross * 0.10) : 0;
+        double netPay = gross - sss - tax - 100.00; // 100 is Pag-IBIG
+
+        System.out.println("\n===========================================");
+        System.out.println("            OFFICIAL PAYSLIP               ");
+        System.out.println("===========================================");
+        System.out.println("Total Hours Worked: " + String.format("%.2f", hours));
+        System.out.println("Total Late (Mins):  " + (int)lates);
+        System.out.println("Late Deduction:    -P " + String.format("%.2f", lateDeduction));
+        System.out.println("-------------------------------------------");
+        System.out.println("GROSS SALARY:       P " + String.format("%.2f", gross));
+        System.out.println("NET PAY:            P " + String.format("%.2f", netPay));
+        System.out.println("===========================================");
     }
 }
