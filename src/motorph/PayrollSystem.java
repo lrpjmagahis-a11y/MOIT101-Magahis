@@ -12,7 +12,7 @@ public class PayrollSystem {
         
         Scanner sc = new Scanner(System.in);
         System.out.println("==============================================");
-        System.out.println("        MOTORPH SELF-SERVICE PORTAL v6.0      ");
+        System.out.println("        MOTORPH PAYROLL SYSTEM v8.0          ");
         System.out.println("==============================================\n");
 
         System.out.print("👤 Employee ID: ");
@@ -30,17 +30,17 @@ public class PayrollSystem {
     }
 
     public static void loadEmployeeData() {
+        // Loads 1,500 employees into memory for instant access
         try (BufferedReader br = new BufferedReader(new FileReader("EmployeeDetails.csv"))) {
             String line;
             br.readLine(); // Skip Header
             while ((line = br.readLine()) != null) {
-                // Regex handles commas inside addresses (quotes)
                 String[] data = line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
                 if (data.length >= 20) {
                     employeeMap.put(data[0].trim(), data);
                 }
             }
-            System.out.println("📊 System: " + employeeMap.size() + " employees loaded.");
+            System.out.println("📊 System Ready: " + employeeMap.size() + " Employees Loaded.");
         } catch (Exception e) {
             System.out.println("[!] ERROR: EmployeeDetails.csv not found.");
         }
@@ -48,7 +48,6 @@ public class PayrollSystem {
 
     public static boolean authenticate(String id, String pin) {
         if (!employeeMap.containsKey(id)) return false;
-        // Index 19 is the PIN column in your CSV
         return employeeMap.get(id)[19].trim().equals(pin);
     }
 
@@ -64,96 +63,81 @@ public class PayrollSystem {
 
             if (choice.equals("1")) {
                 System.out.println("\n--- PROFILE ---");
-                System.out.println("ID: " + emp[0]);
-                System.out.println("Position: " + emp[11]);
-                System.out.println("Basic Salary: P " + emp[13]);
+                System.out.println("ID: " + emp[0] + " | Position: " + emp[11]);
+                System.out.println("SSS: " + emp[6] + " | TIN: " + emp[8]);
             } else if (choice.equals("2")) {
                 calculatePayslip(emp);
-            } else if (choice.equals("3")) {
-                break;
-            }
+            } else if (choice.equals("3")) break;
         }
     }
 
     public static void calculatePayslip(String[] emp) {
         Scanner sc = new Scanner(System.in);
-        System.out.print("\nEnter Month (01-12): ");
-        String monthInput = sc.nextLine().trim();
+        System.out.print("\nEnter Month (1-12): ");
+        int userMonth = Integer.parseInt(sc.nextLine().trim());
         
         System.out.print("Select Cutoff [1] 1-15  [2] 16-31: ");
         String cutoff = sc.nextLine().trim();
         
         double hourlyRate = Double.parseDouble(emp[18].trim());
-        double totalHours = 0;
-        double totalLateMins = 0;
+        double totalHours = 0, totalLateMins = 0;
+        int count = 0;
 
+        // Path check: Looks for AttendanceRecords.csv in project root
         try (BufferedReader br = new BufferedReader(new FileReader("AttendanceRecords.csv"))) {
             String line;
             br.readLine(); // Skip header
             while ((line = br.readLine()) != null) {
+                if (line.trim().isEmpty()) continue;
                 String[] att = line.split(",");
-                if (att.length < 4) continue;
-
-                // Match ID
+                
+                // Match Employee ID
                 if (att[0].trim().equals(emp[0])) {
                     String[] dateParts = att[1].trim().split("/");
                     int csvMonth = Integer.parseInt(dateParts[0]);
                     int csvDay = Integer.parseInt(dateParts[1]);
-                    int userMonth = Integer.parseInt(monthInput);
 
-                    // Month and Cutoff Logic
+                    // Match Month and Cutoff
                     if (csvMonth == userMonth) {
-                        boolean inPeriod = (cutoff.equals("1") && csvDay <= 15) || (cutoff.equals("2") && csvDay > 15);
+                        boolean inCutoff = (cutoff.equals("1") && csvDay <= 15) || (cutoff.equals("2") && csvDay > 15);
                         
-                        if (inPeriod) {
+                        if (inCutoff) {
                             String[] in = att[2].trim().split(":");
                             String[] out = att[3].trim().split(":");
-                            
                             double hIn = Double.parseDouble(in[0]), mIn = Double.parseDouble(in[1]);
                             double hOut = Double.parseDouble(out[0]), mOut = Double.parseDouble(out[1]);
 
-                            // Late calculation (Standard 8:00 AM)
-                            if (hIn > 8 || (hIn == 8 && mIn > 0)) {
-                                totalLateMins += ((hIn - 8) * 60) + mIn;
-                            }
-
+                            if (hIn > 8 || (hIn == 8 && mIn > 0)) totalLateMins += ((hIn - 8) * 60) + mIn;
                             double dayHrs = (hOut + mOut/60) - (hIn + mIn/60);
-                            // Subtract 1hr lunch if they worked more than 5 hours
                             totalHours += (dayHrs > 5) ? dayHrs - 1 : dayHrs;
+                            count++;
                         }
                     }
                 }
             }
 
-            if (totalHours == 0) {
-                System.out.println("⚠️ No attendance found for this period.");
+            if (count == 0) {
+                System.out.println("⚠️ No attendance data found for this period.");
                 return;
             }
 
-            // Math Engine
-            double latePenalty = (hourlyRate / 60) * totalLateMins;
-            double gross = (hourlyRate * totalHours) - latePenalty;
-            
-            // Statutory Deductions (Simplified Engine)
+            // Calculations
+            double gross = (hourlyRate * totalHours);
             double sss = gross * 0.045;
-            double phil = gross * 0.02;
-            double pagibig = 100.00;
             double tax = (gross > 12500) ? (gross - 12500) * 0.20 : 0;
-            double net = gross - (sss + phil + pagibig + tax);
+            double net = gross - (sss + tax + 100);
 
             System.out.println("\n==============================================");
-            System.out.println("           MOTORPH OFFICIAL PAYSLIP           ");
+            System.out.println("           OFFICIAL PAYSLIP SUMMARY           ");
             System.out.println("==============================================");
-            System.out.printf("Total Hours:    %.2f hrs\n", totalHours);
-            System.out.printf("Late Minutes:   %d mins\n", (int)totalLateMins);
-            System.out.printf("Gross Salary:   P %,.2f\n", gross);
-            System.out.println("----------------------------------------------");
-            System.out.printf("Total Deduct:  -P %,.2f\n", (sss+phil+pagibig+tax));
-            System.out.printf("NET PAY:        P %,.2f\n", net);
+            System.out.printf("Total Days:    %d days\n", count);
+            System.out.printf("Total Hours:   %.2f hrs\n", totalHours);
+            System.out.printf("Gross Salary:  P %,.2f\n", gross);
+            System.out.printf("NET PAY:       P %,.2f\n", net);
             System.out.println("==============================================\n");
 
         } catch (Exception e) {
-            System.out.println("[!] ERROR: Could not process AttendanceRecords.csv.");
+            System.out.println("❌ ERROR: Could not process AttendanceRecords.csv. Ensure file is in project root.");
         }
     }
 }
